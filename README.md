@@ -3,13 +3,13 @@
 On-device AI with dynamic capability probing, hybrid routing, and silent cloud fallback.
 
 ```bash
-npm install @hemanth/localfirst
+npm install @ondevice/localfirst
 ```
 
 ## Quick start
 
 ```js
-import localfirst from '@hemanth/localfirst';
+import localfirst from '@ondevice/localfirst';
 
 const ai = await localfirst({ apiKey: process.env.OPENAI_API_KEY });
 const answer = await ai.ask('Turn off the kitchen lights');
@@ -21,7 +21,7 @@ console.log(answer.text, answer.source);
 ## Hardware capability probing
 
 ```js
-import { detect } from '@hemanth/localfirst/detect';
+import { detect } from '@ondevice/localfirst/detect';
 
 const telemetry = await detect();
 console.log(telemetry.cores, telemetry.memory.totalGb, telemetry.gpu.webgpu);
