@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>localfirst System Architecture &amp; Hybrid Dataflow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #f7f8fa;
+      color: #000000;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 32px 20px;
+    }
+    .header {
+      width: 100%;
+      max-width: 1120px;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header-left .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      color: #000000;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header-left .eyebrow::before {
+      content: '';
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: #000000;
+    }
+    .header-left h1 {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 34px;
+      font-weight: 400;
+      color: #000000;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+    .header-left p {
+      font-size: 13px;
+      color: #555555;
+      margin-top: 6px;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-link {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px;
+      color: #000000;
+      text-decoration: none;
+      border: 1px solid #000000;
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: #ffffff;
+      transition: all 0.15s ease;
+    }
+    .nav-link:hover {
+      background: #000000;
+      color: #ffffff;
+    }
+
+    /* Scenario Simulation Radio Controls */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .scenario-toolbar {
+      width: 100%;
+      max-width: 1120px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .scenario-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: #666666;
+      margin-right: 4px;
+    }
+    .scenario-pill {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      color: #000000;
+      background: #ffffff;
+      border: 1px solid #000000;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .scenario-pill:hover {
+      background: #f0f0f2;
+    }
+    #route-all:checked ~ .scenario-toolbar label[for="route-all"],
+    #route-local:checked ~ .scenario-toolbar label[for="route-local"],
+    #route-cloud:checked ~ .scenario-toolbar label[for="route-cloud"],
+    #route-fallback:checked ~ .scenario-toolbar label[for="route-fallback"] {
+      background: #000000;
+      color: #ffffff;
+    }
+
+    /* Diagram Container & Canvas */
+    .diagram-container {
+      width: 100%;
+      max-width: 1120px;
+      background: #ffffff;
+      border: 1px solid #000000;
+      border-radius: 16px;
+      box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+      padding: 24px;
+      position: relative;
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Status Bar */
+    .status-bar {
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: #f7f8fa;
+      border: 1px solid #e2e4e8;
+      border-radius: 8px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      color: #333333;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #000000;
+    }
+    .status-text {
+      flex: 1;
+    }
+    .status-all, .status-local, .status-cloud, .status-fallback { display: none; }
+    #route-all:checked ~ .diagram-container .status-all { display: inline; }
+    #route-local:checked ~ .diagram-container .status-local { display: inline; }
+    #route-cloud:checked ~ .diagram-container .status-cloud { display: inline; }
+    #route-fallback:checked ~ .diagram-container .status-fallback { display: inline; }
+
+    /* ================= SUBTLE ANIMATIONS ================= */
+
+    /* 1. Circuit crawl along dashed lines */
+    @keyframes march-vertical {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: -16; }
+    }
+    @keyframes march-horizontal {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: 32; }
+    }
+    .flow-fallback {
+      stroke-dasharray: 4, 4;
+      animation: march-vertical 1.4s linear infinite;
+    }
+    .flow-return-loop {
+      stroke-dasharray: 4, 4;
+      animation: march-horizontal 3.2s linear infinite;
+    }
+
+    /* 2. Focal breathing shadow on solid black router */
+    @keyframes focal-breathe {
+      0%, 100% {
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.06));
+      }
+      50% {
+        filter: drop-shadow(0 6px 16px rgba(0,0,0,0.16));
+      }
+    }
+    .node-router {
+      animation: focal-breathe 4s ease-in-out infinite;
+    }
+
+    /* 3. Interactive card hover lift */
+    .node-card {
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+      cursor: default;
+    }
+    .node-card:hover {
+      transform: translateY(-2px);
+    }
+
+    /* 4. Active Route Muting & Focus */
+    .route-conn, .node-card {
+      transition: opacity 0.25s ease, stroke-width 0.2s ease;
+    }
+
+    /* Local Route Selected */
+    #route-local:checked ~ .diagram-container .tier-cloud,
+    #route-local:checked ~ .diagram-container .conn-cloud,
+    #route-local:checked ~ .diagram-container .conn-fallback {
+      opacity: 0.18;
+    }
+    #route-local:checked ~ .diagram-container .conn-local {
+      stroke-width: 1.8;
+    }
+
+    /* Cloud Escalation Selected */
+    #route-cloud:checked ~ .diagram-container .tier-local,
+    #route-cloud:checked ~ .diagram-container .conn-local,
+    #route-cloud:checked ~ .diagram-container .conn-fallback {
+      opacity: 0.18;
+    }
+    #route-cloud:checked ~ .diagram-container .conn-cloud {
+      stroke-width: 1.8;
+    }
+
+    /* Fallback Selected */
+    #route-fallback:checked ~ .diagram-container .conn-local,
+    #route-fallback:checked ~ .diagram-container .conn-cloud-direct {
+      opacity: 0.18;
+    }
+    #route-fallback:checked ~ .diagram-container .conn-fallback {
+      stroke-width: 1.8;
+    }
+
+    /* Reduced Motion Safety */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+      .flow-fallback, .flow-return-loop, .node-router {
+        animation: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Route Simulation Radios -->
+  <input type="radio" name="route-view" id="route-all" class="sr-only" checked>
+  <input type="radio" name="route-view" id="route-local" class="sr-only">
+  <input type="radio" name="route-view" id="route-cloud" class="sr-only">
+  <input type="radio" name="route-view" id="route-fallback" class="sr-only">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="eyebrow">On-Device Hybrid AI Runtime</div>
+      <h1>localfirst Architecture &amp; System Design</h1>
+      <p>Dynamic capability probing, confidence-gated hybrid routing, on-device execution, and silent cloud fallback.</p>
+    </div>
+    <div class="header-right">
+      <a href="index.html" class="nav-link">&larr; Return to Interactive Demo</a>
+    </div>
+  </div>
+
+  <!-- Scenario Toolbar -->
+  <div class="scenario-toolbar">
+    <span class="scenario-label">SIMULATE ROUTE:</span>
+    <label for="route-all" class="scenario-pill">All Paths</label>
+    <label for="route-local" class="scenario-pill">On-Device Local (P &ge; 0.70)</label>
+    <label for="route-cloud" class="scenario-pill">Cloud Escalation</label>
+    <label for="route-fallback" class="scenario-pill">Silent Fallback (OOM)</label>
+  </div>
+
+  <div class="diagram-container">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 640" width="1120" height="640" role="img" aria-labelledby="diag-title diag-desc">
+      <title id="diag-title">localfirst Hybrid AI System Architecture</title>
+      <desc id="diag-desc">Clean, non-overlapping architectural dataflow showing client ingress, capability probing, hybrid decision routing, local execution, and silent cloud fallback.</desc>
+
+      <defs>
+        <!-- Arrowhead Markers -->
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#000000"/>
+        </marker>
+        <marker id="arrow-dashed" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#000000"/>
+        </marker>
+      </defs>
+
+      <!-- ================= REGIONAL ENCLOSURES ================= -->
+
+      <!-- Zone 1: CLIENT ENVIRONMENT (Dashed) -->
+      <rect x="36" y="56" width="180" height="480" rx="10" fill="none" stroke="#000000" stroke-width="1" stroke-dasharray="4,4"/>
+      <text x="48" y="42" fill="#000000" font-size="9.5" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.16em">CLIENT ENVIRONMENT</text>
+
+      <!-- Zone 2: LOCALFIRST CORE ENGINE (Solid) -->
+      <rect x="246" y="56" width="260" height="480" rx="10" fill="none" stroke="#000000" stroke-width="1.2"/>
+      <text x="258" y="42" fill="#000000" font-size="9.5" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.16em">LOCALFIRST CORE ENGINE</text>
+
+      <!-- Zone 3: EXECUTION RUNTIMES (Dashed) -->
+      <rect x="536" y="56" width="250" height="480" rx="10" fill="none" stroke="#000000" stroke-width="1" stroke-dasharray="4,4"/>
+      <text x="548" y="42" fill="#000000" font-size="9.5" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.16em">EXECUTION RUNTIMES</text>
+
+      <!-- Zone 4: OUTPUT CONVERGENCE (Solid) -->
+      <rect x="816" y="56" width="268" height="480" rx="10" fill="none" stroke="#000000" stroke-width="1.2"/>
+      <text x="828" y="42" fill="#000000" font-size="9.5" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.16em">CONVERGENCE &amp; OUTPUT</text>
+
+      <!-- ================= ZONE 1: CLIENT CALLER & TELEMETRY ================= -->
+
+      <!-- Node 1: Client Application -->
+      <g class="node-card node-client">
+        <rect x="48" y="112" width="156" height="120" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="56" y="120" width="84" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="98" y="132" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SDK CALLER</text>
+        <text x="126" y="160" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Client Application</text>
+        <text x="126" y="184" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">ai.ask() · speak()</text>
+        <text x="126" y="202" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">ai.askStream() (SSE)</text>
+        <text x="126" y="220" fill="#777777" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Browser · Node · Edge</text>
+      </g>
+
+      <!-- Node 2: Capability Probe -->
+      <g class="node-card node-client">
+        <rect x="48" y="354" width="156" height="124" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="56" y="362" width="94" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="103" y="374" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HARDWARE PROBE</text>
+        <text x="126" y="402" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Capability Probe</text>
+        <text x="126" y="426" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">detect() · WebGPU · RAM</text>
+        <text x="126" y="444" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">CPU Cores · Net RTT</text>
+        <text x="126" y="462" fill="#777777" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">15s TTL Cache · &lt;2ms</text>
+      </g>
+
+      <!-- ================= ZONE 2: LOCALFIRST CORE ENGINE ================= -->
+
+      <!-- Node 3: THE SIGNATURE INVERTED SOLID BLACK CARD (Hybrid Decision Router) -->
+      <g class="node-card node-router">
+        <rect x="260" y="112" width="232" height="136" rx="8" fill="#000000" stroke="#000000" stroke-width="1.2"/>
+        <rect x="268" y="120" width="102" height="16" rx="3" fill="#000000" stroke="#ffffff" stroke-width="0.8"/>
+        <text x="319" y="132" fill="#ffffff" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HYBRID ROUTER</text>
+        <text x="376" y="160" fill="#ffffff" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Hybrid Decision Router</text>
+        <text x="376" y="184" fill="#e5e5e5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Confidence Gate: P &ge; 0.70</text>
+        <text x="376" y="204" fill="#cccccc" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Complexity &amp; Rules Balancer</text>
+        <text x="376" y="224" fill="#999999" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">auto · prefer-local · cloud</text>
+      </g>
+
+      <!-- Node 4: Silent Fallback Guard -->
+      <g class="node-card node-guard">
+        <rect x="260" y="354" width="232" height="124" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="268" y="362" width="80" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="308" y="374" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RESILIENCE</text>
+        <text x="376" y="402" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Silent Fallback Guard</text>
+        <text x="376" y="426" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Catches OOM / GPU Lost</text>
+        <text x="376" y="444" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Zero Crash · Auto Handoff</text>
+        <text x="376" y="462" fill="#777777" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Event Bus: route · fallback</text>
+      </g>
+
+      <!-- ================= ZONE 3: EXECUTION RUNTIMES ================= -->
+
+      <!-- Node 5: Tier 1 - Local Provider -->
+      <g class="node-card tier-local">
+        <rect x="550" y="112" width="222" height="136" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="558" y="120" width="98" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="607" y="132" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TIER 1 · LOCAL</text>
+        <text x="661" y="160" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Local Provider</text>
+        <text x="661" y="184" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">In-Browser WebGPU LLM</text>
+        <text x="661" y="204" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Web Speech STT / TTS · Wasm</text>
+        <text x="661" y="224" fill="#777777" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Zero Egress · Sub-100ms Latency</text>
+      </g>
+
+      <!-- Node 6: Tier 2 - Cloud & Daemons -->
+      <g class="node-card tier-cloud">
+        <rect x="550" y="354" width="222" height="124" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="558" y="362" width="102" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="609" y="374" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TIER 2 · REMOTE</text>
+        <text x="661" y="402" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cloud &amp; Daemons</text>
+        <text x="661" y="426" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">OpenAI · Gemini · OpenRouter</text>
+        <text x="661" y="444" fill="#555555" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">Ollama / vLLM (localhost:11434)</text>
+        <text x="661" y="462" fill="#777777" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">SSE &amp; WebSocket (WSS) Stream</text>
+      </g>
+
+      <!-- ================= ZONE 4: CONVERGENCE & OUTPUT ================= -->
+
+      <!-- Node 7: Unified Resolved Result -->
+      <g class="node-card node-result">
+        <rect x="834" y="196" width="170" height="196" rx="8" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+        <rect x="842" y="204" width="96" height="16" rx="3" fill="#ffffff" stroke="#000000" stroke-width="0.8"/>
+        <text x="890" y="216" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">UNIFIED OUTPUT</text>
+        <text x="919" y="246" fill="#000000" font-size="13.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Resolved Result</text>
+        <text x="919" y="276" fill="#444444" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">{ text: string,</text>
+        <text x="919" y="294" fill="#444444" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">  source: 'local'|'cloud',</text>
+        <text x="919" y="312" fill="#444444" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle">  confidence: 0.94 }</text>
+        <text x="919" y="342" fill="#666666" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">Zero-throw exception guarantee</text>
+        <text x="919" y="364" fill="#000000" font-size="8.5" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Returns to Caller SDK</text>
+      </g>
+
+      <!-- ================= CONNECTORS (NON-OVERLAPPING CHANNELS) ================= -->
+
+      <!-- 1. Task Ingress (Client App -> Router) -->
+      <g class="route-conn conn-task">
+        <line x1="204" y1="168" x2="260" y2="168" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="214" y="161" width="36" height="14" rx="2" fill="#ffffff"/>
+        <text x="232" y="171" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">TASK</text>
+      </g>
+
+      <!-- 2. Telemetry Ingress (Capability Probe -> Router Bottom) -->
+      <g class="route-conn conn-telemetry">
+        <path d="M 204,416 H 228 Q 234,416 234,410 V 290 Q 234,284 240,284 H 336 Q 342,284 342,278 V 248" fill="none" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="208" y="342" width="52" height="14" rx="2" fill="#ffffff"/>
+        <text x="234" y="352" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">PROFILE</text>
+      </g>
+
+      <!-- 3. Confident Local Route (Router -> Local Provider) -->
+      <g class="route-conn conn-local">
+        <line x1="492" y1="168" x2="550" y2="168" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="501" y="161" width="40" height="14" rx="2" fill="#ffffff"/>
+        <text x="521" y="171" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">P &ge; 0.70</text>
+      </g>
+
+      <!-- 4. Escalation Route (Router -> Cloud Provider) -->
+      <g class="route-conn conn-cloud conn-cloud-direct">
+        <path d="M 492,212 H 518 Q 524,212 524,218 V 382 Q 524,388 530,388 H 550" fill="none" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="502" y="290" width="44" height="14" rx="2" fill="#ffffff"/>
+        <text x="524" y="300" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">ESCALATE</text>
+      </g>
+
+      <!-- 5. Silent Fallback (Local Provider -> Cloud Provider) -->
+      <g class="route-conn conn-fallback">
+        <line class="flow-fallback" x1="661" y1="248" x2="661" y2="354" stroke="#000000" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow-dashed)"/>
+        <rect x="613" y="290" width="96" height="14" rx="2" fill="#ffffff"/>
+        <text x="661" y="300" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">SILENT FALLBACK</text>
+        <rect x="617" y="307" width="88" height="13" rx="2" fill="#ffffff"/>
+        <text x="661" y="316" fill="#555555" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">(ON OOM / ERROR)</text>
+      </g>
+
+      <!-- 6. Resilience Guard Interceptor (Guard -> Cloud Provider) -->
+      <g class="route-conn conn-guard">
+        <line x1="492" y1="416" x2="550" y2="416" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="504" y="409" width="34" height="14" rx="2" fill="#ffffff"/>
+        <text x="521" y="419" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">GUARD</text>
+      </g>
+
+      <!-- 7. Local Output (Local Provider -> Resolved Result) -->
+      <g class="route-conn conn-local">
+        <path d="M 772,176 H 798 Q 804,176 804,182 V 252 Q 804,258 810,258 H 834" fill="none" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="782" y="210" width="44" height="14" rx="2" fill="#ffffff"/>
+        <text x="804" y="220" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">LOCAL</text>
+      </g>
+
+      <!-- 8. Cloud Output (Cloud Provider -> Resolved Result) -->
+      <g class="route-conn conn-cloud">
+        <path d="M 772,416 H 798 Q 804,416 804,410 V 334 Q 804,328 810,328 H 834" fill="none" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="782" y="366" width="44" height="14" rx="2" fill="#ffffff"/>
+        <text x="804" y="376" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CLOUD</text>
+      </g>
+
+      <!-- 9. Final Terminal Return Arrow (Resolved Result -> Output Exit) -->
+      <g class="route-conn conn-return-term">
+        <line x1="1004" y1="294" x2="1068" y2="294" stroke="#000000" stroke-width="1.4" marker-end="url(#arrow)"/>
+        <text x="1034" y="282" fill="#000000" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RETURN</text>
+        <text x="1034" y="308" fill="#666666" font-size="7.5" font-family="'Geist', sans-serif" text-anchor="middle">to caller</text>
+      </g>
+
+      <!-- 10. Closed-Loop Return Highway (Top Highway at y=76) -->
+      <g class="route-conn conn-return-loop">
+        <path class="flow-return-loop" d="M 919,196 V 82 Q 919,76 913,76 H 132 Q 126,76 126,82 V 112" fill="none" stroke="#000000" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow-dashed)"/>
+        <rect x="440" y="69" width="160" height="14" rx="2" fill="#ffffff"/>
+        <text x="520" y="79" fill="#000000" font-size="7.5" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">UNIFIED PAYLOAD TO CALLER</text>
+      </g>
+
+      <!-- ================= BOTTOM LEGEND ================= -->
+      <line x1="36" y1="566" x2="1084" y2="566" stroke="#000000" stroke-width="1"/>
+      <text x="36" y="594" fill="#000000" font-size="9" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.16em">LEGEND</text>
+
+      <!-- Item 1: Synchronous Call -->
+      <line x1="120" y1="590" x2="152" y2="590" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="162" y="594" fill="#000000" font-size="8.5" font-family="'Geist', sans-serif">Synchronous Call / Task Ingress</text>
+
+      <!-- Item 2: Hybrid Decision Arbiter -->
+      <rect x="370" y="584" width="16" height="12" rx="2" fill="#000000"/>
+      <text x="394" y="594" fill="#000000" font-size="8.5" font-family="'Geist', sans-serif">Decision Arbiter (Hybrid Router)</text>
+
+      <!-- Item 3: Confident Route -->
+      <line x1="610" y1="590" x2="642" y2="590" stroke="#000000" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="652" y="594" fill="#000000" font-size="8.5" font-family="'Geist', sans-serif">Confident Route (P &ge; 0.70)</text>
+
+      <!-- Item 4: Silent Fallback -->
+      <line x1="830" y1="590" x2="862" y2="590" stroke="#000000" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow-dashed)"/>
+      <text x="872" y="594" fill="#000000" font-size="8.5" font-family="'Geist', sans-serif">Silent Fallback on Error / OOM</text>
+    </svg>
+
+    <!-- Interactive Simulation Live Status Bar -->
+    <div class="status-bar">
+      <span class="status-dot"></span>
+      <span class="status-text">
+        <span class="status-all"><strong>ACTIVE TOPOLOGY:</strong> Complete system overview. Capability detection informs hybrid router; tasks balance between local WebGPU and cloud endpoints with silent fallback.</span>
+        <span class="status-local"><strong>ON-DEVICE PATH:</strong> High-confidence query (P &ge; 0.70) routed directly to In-Browser WebGPU LLM / Web Speech. Zero cloud data egress, sub-100ms latency.</span>
+        <span class="status-cloud"><strong>CLOUD ESCALATION:</strong> Complex multi-step reasoning or incapable hardware escalated to remote endpoints (Gemini / OpenAI / Ollama daemon via SSE).</span>
+        <span class="status-fallback"><strong>SILENT FALLBACK CIRCUIT:</strong> Local WebGPU OOM or context loss automatically caught by Resilience Guard and re-routed to Cloud without throwing exceptions.</span>
+      </span>
+    </div>
+  </div>
+</body>
+</html>

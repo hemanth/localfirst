@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+reference_arch.png
+.tempmediaStorage/

@@ -1,0 +1,66 @@
+{
+  "name": "localfirst",
+  "version": "0.1.0",
+  "description": "On-device AI with dynamic capability probing, hybrid routing, and silent cloud fallback.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./detect": {
+      "import": "./src/detect.js",
+      "require": "./dist/detect.cjs"
+    },
+    "./router": {
+      "import": "./src/router.js",
+      "require": "./dist/router.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "build": "node build.mjs",
+    "demo": "node demo.js",
+    "prepublishOnly": "npm run test && npm run build"
+  },
+  "keywords": [
+    "local-first",
+    "on-device",
+    "hybrid-ai",
+    "router",
+    "webgpu",
+    "stt",
+    "tts",
+    "llm",
+    "fallback",
+    "edge-ai"
+  ],
+  "author": "Hemanth HM <hemanth@h3manth.com> (https://h3manth.com)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hemanth/localfirst.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hemanth/localfirst/issues"
+  },
+  "homepage": "https://github.com/hemanth/localfirst#readme",
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
