@@ -1,5 +1,5 @@
 {
-  "name": "localfirst",
+  "name": "@hemanth/localfirst",
   "version": "0.1.0",
   "description": "On-device AI with dynamic capability probing, hybrid routing, and silent cloud fallback.",
   "type": "module",
